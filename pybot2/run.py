@@ -2,6 +2,7 @@ import battlecode as bc
 import random
 import sys
 import traceback
+import numpy as np
 
 import os
 
@@ -28,7 +29,14 @@ def backwardish(directionToBack, robotId):
             gc.move_robot(robotId, directionToMove)
             return
 
-
+def getInitMap():
+    width = leMap.width
+    height = leMap.height
+    actualMap = np.zeros((width, height))
+    for i in range(width):
+        for j in range(height):
+            mL = bc.MapLocation(bc.Planet.Earth, i, j)
+            
 #-----------------------------------------------------------------------------------------------------------#
 #                                                                                                           #
 #                                               ACTUAL CODE                                                 #
