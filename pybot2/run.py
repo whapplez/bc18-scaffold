@@ -29,13 +29,25 @@ def backwardish(directionToBack, robotId):
             gc.move_robot(robotId, directionToMove)
             return
 
+#numpy array (accessed with array[x, y]) for initial karbonite values, -1 for impassable terrain
 def getInitMap():
-    width = leMap.width
-    height = leMap.height
-    actualMap = np.zeros((width, height))
-    for i in range(width):
-        for j in range(height):
-            mL = bc.MapLocation(bc.Planet.Earth, i, j)
+    if gc.planet() == bc.Planet.Earth:
+        width = leMap.width
+        height = leMap.height
+        actualMap = np.zeros((width, height))
+        for i in range(width):
+            for j in range(height):
+                mL = bc.MapLocation(bc.Planet.Earth, i, j)
+                if leMap.is_passable_terrain_at(mL):
+                    actualMap[i, j] = leMap.initial_karbonite_at(mL)
+                else: 
+                    actualMap[i, j] = -1
+        return actualMap
+
+def rangerMicro(robotId):
+    if other.team != my_team and unit.unit_type == bc.UnitType.Ranger and not (gc.is_attack_ready(unit.id) or gc.can_attack(unit.id, other.id)):
+        print('backed up!')
+        backwardish(location.map_location().direction_to(other.location.map_location()), unit.id)
             
 #-----------------------------------------------------------------------------------------------------------#
 #                                                                                                           #
@@ -54,6 +66,9 @@ directions = list(bc.Direction)
 possibleDirections = [0, 1, -1, 2, -2, 3, -3, 4]
 leMap = gc.starting_map(gc.planet())
 initUnits = leMap.initial_units
+leActualMap = getInitMap()
+
+print(leActualMap)
 
 print("pystarted")
 
@@ -101,6 +116,7 @@ while True:
             location = unit.location
             if location.is_on_map():
                 nearby = gc.sense_nearby_units(location.map_location(), unit.vision_range)
+                nearby = sorted(nearby, key=lambda x: x.health)
                 for other in nearby:
                     if unit.unit_type == bc.UnitType.Worker and gc.can_build(unit.id, other.id):
                         gc.build(unit.id, other.id)
