@@ -69,6 +69,7 @@ initUnits = leMap.initial_units
 leActualMap = getInitMap()
 
 print(leActualMap)
+print('holy fuck me')
 
 print("pystarted")
 
