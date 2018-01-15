@@ -2,7 +2,7 @@ import battlecode as bc
 import random
 import sys
 import traceback
-import queue
+import heapq
 import os
 import numpy as np
 
@@ -45,6 +45,18 @@ def getInitMap():
                     actualMap[i, j] = -1
         return actualMap
 
+def workerGatherHeur(karboniteDepoLoc, karboniteDepoSize, location, range2, workerHarvest): #takes in distance squared
+    inRange=[]
+    mLocation=location.map_location()
+    for loc in gc.all_locations_within(mLocation,range2):
+        if loc in karboniteDepoLoc:
+            ind=karboniteDepoLoc.index(loc)
+            heur=karboniteDepoSize[ind]//workerHarvest/(mLocation.distance_squared_to(loc)+0.001)
+            heapq.heappush(inRange,(-heur,ind))
+    if inRange:
+        x=heapq.heappop(inRange)
+        return (x[0],karboniteDepoLoc[x[1]],x[1])
+    return ""
 #-----------------------------------------------------------------------------------------------------------#
 #                                                                                                           #
 #                                               ACTUAL CODE                                                 #
@@ -89,6 +101,8 @@ while True:
         #Global info------------------------------
 
         productionCount = 0
+        blueprintLoc = None
+        blueprintWaiting = False
 
         #----------------------------------------------------------------
         for unit in gc.my_units():
@@ -96,8 +110,6 @@ while True:
 
             if not location.is_on_map():
                 continue
-
-            nearby = gc.sense_nearby_units(location.map_location(), unit.vision_range)
 
             # first, factory logic
             if unit.unit_type == bc.UnitType.Factory:   #FACTORY
@@ -109,6 +121,11 @@ while True:
                             print('unloaded a %s!' %(unit.unit_type))
                             gc.unload(unit.id, d)
                             continue
+
+                if not unit.structure_is_built():
+                    blueprintLoc = unit.location.map_location()
+                    blueprintWaiting = True
+
                 if gc.can_produce_robot(unit.id, bc.UnitType.Ranger):
                     # if random.randint(0, 10) < 4:
                     #     gc.produce_robot(unit.id, bc.UnitType.Knight)
@@ -121,17 +138,27 @@ while True:
             # first, let's look for nearby blueprints to work o
             #WORKER    
             elif unit.unit_type == bc.UnitType.Worker:
-                d = random.choice(directions)
+                nearby = gc.sense_nearby_units(location.map_location(), 2)
                 for other in nearby:
                     if other.team == my_team and gc.can_build(unit.id, other.id):
                         gc.build(unit.id, other.id)
                         print('built a factory!')
-                    elif gc.karbonite() >= bc.UnitType.Factory.blueprint_cost() and gc.can_blueprint(unit.id, bc.UnitType.Factory, d):
-                        gc.blueprint(unit.id, bc.UnitType.Factory, d)
+                        continue
+                for i in directions:
+                    if gc.karbonite() >= bc.UnitType.Factory.blueprint_cost() and gc.can_blueprint(unit.id, bc.UnitType.Factory, i):
+                            gc.blueprint(unit.id, bc.UnitType.Factory, i)
+                            continue
+                if blueprintWaiting:
+                    mLoc = location.map_location()
+                    distToBlue = mLoc.distance_squared_to(blueprintLoc)
+                    if distToBlue > 2:
+                        forwardish(mLoc.direction_to(blueprintLoc), unit.id)
+                        continue
 
-            nearby = sorted(nearby, key=lambda x: x.health)
             #RANGER
             if unit.unit_type == bc.UnitType.Ranger:
+                nearby = gc.sense_nearby_units(location.map_location(), unit.vision_range)
+                nearby = sorted(nearby, key=lambda x: x.health)
                 for other in nearby:
                     if other.team != my_team and gc.is_attack_ready(unit.id) and gc.can_attack(unit.id, other.id):
                         print('attacked a thing!')
