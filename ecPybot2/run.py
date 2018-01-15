@@ -1,11 +1,10 @@
-
-
 import battlecode as bc
 import random
 import sys
 import traceback
 import queue
 import os
+import heapq
 
 EARLY_EARLY_GAME = 150
 EARLY_GAME = 400
@@ -30,13 +29,19 @@ def backwardish(directionToBack, robotId):
         if gc.is_move_ready(robotId) and gc.can_move(robotId, directionToMove):
             gc.move_robot(robotId, directionToMove)
             return
-def workerGatherHeur(karboniteDepo,location,range2, workerHarvest): #takes in distance squared
-    inRange=queue.PriorityQueue()
-    for loc in gc.all_locations_within(location,range2):
-        if location.is_within_range(range2,loc) and karboniteDepo[loc]>0:
-            heur=karboniteDepo[loc]//workerHarvest/(location.distance_squared_to(loc)+0.001)
-            inRange.put((-heur,loc))
-    return inRange.pop()
+def workerGatherHeur(karboniteDepoLoc, karboniteDepoSize, location, range2, workerHarvest): #takes in distance squared
+    inRange=[]
+    mLocation=location.map_location()
+    for loc in gc.all_locations_within(mLocation,range2):
+        if loc in karboniteDepoLoc:
+            ind=karboniteDepoLoc.index(loc)
+            heur=karboniteDepoSize[ind]//workerHarvest/(mLocation.distance_squared_to(loc)+0.001)
+            heapq.heappush(inRange,(-heur,ind))
+    if inRange:
+        x=heapq.heappop(inRange)
+        return (-x[0],karboniteDepoLoc[x[1]],x[1])
+    return ""
+def workerBuildHeur():
 
 #-----------------------------------------------------------------------------------------------------------#
 #                                                                                                           #
@@ -80,22 +85,25 @@ while True:
 
         #Global info------------------------------
         #karbonite depos
-        karboniteDepo = {}
+        karboniteDepoLoc = []
+        karboniteDepoSize = []
         for r in range(leMap.height):
             for c in range(leMap.width):
                 loc=bc.MapLocation(gc.planet(),c,r)
                 karb = leMap.initial_karbonite_at(loc)
                 if karb>0:
                     # print("karb: "+str(karb))
-                    karboniteDepo[loc]=karb
-
-        productionCount=0
-
+                    karboniteDepoLoc.append(loc)
+                    karboniteDepoSize.append(karb)
+        scavenger = set() #workers that look for karbonite
+        productionCount=1
+        workerUnload=0
+        gameTurn=bc.game_turns()
 
         #----------------------------------------------------------------
         for unit in gc.my_units():
-            workerHarvest=gc.worker_harvest_amount()
             location = unit.location
+            mapLocation = location.map_location()
             if not location.is_on_map():
                 continue
             nearby = gc.sense_nearby_units(location.map_location(), unit.vision_range)
@@ -108,9 +116,14 @@ while True:
                         if gc.can_unload(unit.id, d):
                             print('unloaded a %s!' %(unit.unit_type))
                             gc.unload(unit.id, d)
+                            if gameTurn<50 or workerUnload%3!=0:
+                                scavenger.add(sense_unit_at_location(mapLocation.add(d)).id)
                             continue
+                print("its a factory")
+                print("karbonite I have: "+str(gc.karbonite()))
                 if gc.can_produce_robot(unit.id, bc.UnitType.Worker):
-                    if productionCount%2==0 and productionCount<100:
+                    print("prodCount: "+str(productionCount))
+                    if productionCount<4 or productionCount%2==0 and productionCount<60:
                         gc.produce_robot(unit.id, bc.UnitType.Worker)
                         print('produced worker')
                     # if random.randint(0, 10) < 4:
@@ -139,25 +152,39 @@ while True:
 
             #WORKER    
             elif unit.unit_type == bc.UnitType.Worker:
+                adjacent=gc.sense_nearby_units(location.map_location(),2)
                 d = random.choice(directions)
-                for other in nearby:
-                    if other.team == my_team and gc.can_build(unit.id, other.id):
-                        gc.build(unit.id, other.id)
-                        print('built a factory!')
-                    elif gc.karbonite() >= bc.UnitType.Factory.blueprint_cost() and gc.can_blueprint(unit.id, bc.UnitType.Factory, d):
-                        gc.blueprint(unit.id, bc.UnitType.Factory, d)
+
+                if unit.id in scavenger: #-------------------scavengers--------------------------------------------------------------------------------
+                    workerHarvest=unit.worker_harvest_amount()
+                    karboLoc=workerGatherHeur(karboniteDepoLoc, karboniteDepoSize,location,65,workerHarvest)
+                    if not karboLoc:
+                        continue
+                    if karboLoc[0]!=0:
+                        d=location.map_location().direction_to(karboLoc[1])
+                        if karboLoc[0]>999:
+                            gc.harvest(unit.id, d)
+                            karboniteDepoSize[karboLoc[2]]-=workerHarvest
+                            if karboniteDepoSize[karboLoc[2]]<1:
+                                   karboniteDepoSize.remove(karboLoc[2])
+                                   karboniteDepoLoc.remove(karboLoc[2])
                     else:
-                        karboLoc=workerGatherHeur(karboniteDepo,location,1,workerHarvest)
+                        karboLoc=workerGatherHeur(karboniteDepo,location,9,workerHarvest)
                         if karboLoc[0]!=0:
                             d=location.map_location().direction_to(karboLoc[1])
-                            if karboLoc[0]>999:
-                                gc.harvest(unit.id, d)
-                                karboniteDepo[karboLoc[1]]-=workerHarvest
-                        else:
-                            karboLoc=workerGatherHeur(karboniteDepo,location,9,workerHarvest)
-                            if karboLoc[0]!=0:
-                                d=location.map_location().direction_to(karboLoc[1])
-                forwardish(d,unit.id)
+                    forwardish(d,unit.id)
+                else:#---------------------------------------builders------------------------------------------------------------------------
+                    for other in nearby:
+                        if other.team == my_team:
+                            if gc.can_build(unit.id, other.id) and other in adjacent:
+                                gc.build(unit.id, other.id)
+                                print('built a factory!')
+                            elif gc.karbonite() >= bc.UnitType.Factory.blueprint_cost() and gc.can_blueprint(unit.id, bc.UnitType.Factory, d):
+                                gc.blueprint(unit.id, bc.UnitType.Factory, d)
+                            elif other.unit_type==bc.UnitType.Factory:
+                                    backwardish(location.map_location().direction_to(other.location.map_location()), unit.id)
+                    # else:
+                    #     noFactory=True
 
                 # move onto the next unit
             # okay, there weren't any dudes around
