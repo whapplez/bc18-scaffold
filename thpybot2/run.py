@@ -55,8 +55,32 @@ def workerGatherHeur(karboniteDepoLoc, karboniteDepoSize, location, range2, work
             heapq.heappush(inRange,(-heur,ind))
     if inRange:
         x=heapq.heappop(inRange)
-        return (x[0],karboniteDepoLoc[x[1]],x[1])
+        return (-x[0],karboniteDepoLoc[x[1]],x[1])
     return ""
+
+def genMoveRanger(unit, location):
+    if unit.unit_type != bc.UnitType.Worker and unit.unit_type != bc.UnitType.Rocket and unit.unit_type != bc.UnitType.Factory and location.is_on_map():
+        targetLoc = 0
+        for i in initUnits:
+            if i.team != my_team and i.unit_type == bc.UnitType.Worker:
+                if distanceBetweenUnits(unit, i) <= 6:
+                    finishedInit.append(i.location.map_location())
+                if not i.location.map_location() in finishedInit:
+                    targetLoc = i.location
+                    break
+
+        if isinstance(targetLoc, int):
+            if len(enemy) > 0:
+                targetLoc = enemy[0].location
+        if isinstance(targetLoc, int):
+            d = random.choice(directions)
+        else:
+            d = location.map_location().direction_to(targetLoc.map_location())
+        forwardish(d, unit.id)
+
+def distanceBetweenUnits(unit, other):
+    return unit.location.map_location().distance_squared_to(other.location.map_location())
+
 #-----------------------------------------------------------------------------------------------------------#
 #                                                                                                           #
 #                                               ACTUAL CODE                                                 #
@@ -75,6 +99,8 @@ possibleDirections = [0, 1, -1, 2, -2, 3, -3, 4]
 leMap = gc.starting_map(gc.planet())
 initUnits = leMap.initial_units
 leActualMap = getInitMap()
+finishedInit = []
+enemy = []
 
 print("pystarted")
 
@@ -86,8 +112,8 @@ random.seed(6137)
 # let's start off with some research!
 # we can queue as much as we want.
 gc.queue_research(bc.UnitType.Ranger)
-gc.queue_research(bc.UnitType.Worker)
-gc.queue_research(bc.UnitType.Knight)
+gc.queue_research(bc.UnitType.Ranger)
+gc.queue_research(bc.UnitType.Rocket)
 
 my_team = gc.team()
 while True:
@@ -104,7 +130,20 @@ while True:
         blueprintLoc = None
         blueprintWaiting = False
 
-        #----------------------------------------------------------------
+        # #----------------------------------------------------------------
+
+        # karboniteDepoLoc = []
+        # karboniteDepoSize = []
+        # for r in range(leMap.height):
+        #     for c in range(leMap.width):
+        #         loc=bc.MapLocation(gc.planet(),c,r)
+        #         karb = leMap.initial_karbonite_at(loc)
+        #         if karb>0:
+        #             # print("karb: "+str(karb))
+        #             karboniteDepoLoc.append(loc)
+        #             karboniteDepoSize.append(karb)
+
+        # #----------------------------------------------------------------
         for unit in gc.my_units():
             location = unit.location
 
@@ -121,7 +160,7 @@ while True:
                             print('unloaded a %s!' %(unit.unit_type))
                             gc.unload(unit.id, d)
                             continue
-
+9
                 if not unit.structure_is_built():
                     blueprintLoc = unit.location.map_location()
                     blueprintWaiting = True
@@ -138,49 +177,68 @@ while True:
             # first, let's look for nearby blueprints to work o
             #WORKER    
             elif unit.unit_type == bc.UnitType.Worker:
-                nearby = gc.sense_nearby_units(location.map_location(), 2)
+                nearby ``= gc.sense_nearby_units(location.map_location(), 2)
                 for other in nearby:
                     if other.team == my_team and gc.can_build(unit.id, other.id):
                         gc.build(unit.id, other.id)
                         print('built a factory!')
                         continue
+
+                if blueprintWaiting:
+                    mLoc = location.map_location()
+                    distToBlue = mLoc.distance_squared_to(blueprintLoc)
+                    if distToBlue > 2 and distToBlue < 50:
+                        forwardish(mLoc.direction_to(blueprintLoc), unit.id)
+                        continue
+
                 for i in directions:
                     if gc.karbonite() >= bc.UnitType.Factory.blueprint_cost() and gc.can_blueprint(unit.id, bc.UnitType.Factory, i):
                             gc.blueprint(unit.id, bc.UnitType.Factory, i)
                             continue
-                if blueprintWaiting:
-                    mLoc = location.map_location()
-                    distToBlue = mLoc.distance_squared_to(blueprintLoc)
-                    if distToBlue > 2:
-                        forwardish(mLoc.direction_to(blueprintLoc), unit.id)
-                        continue
+# #---------------------CHENG HARVEST CODE-------------------------------------------------------#
 
+#                 workerHarvest=unit.worker_harvest_amount()
+#                 karboLoc=workerGatherHeur(karboniteDepoLoc, karboniteDepoSize,location,65,workerHarvest)
+#                 if not karboLoc:
+#                     continue
+#                 if karboLoc[0]!=0:
+#                     d=location.map_location().direction_to(karboLoc[1])
+#                     if karboLoc[0]>999:
+#                         gc.harvest(unit.id, d)
+#                         karboniteDepoSize[karboLoc[2]]-=workerHarvest
+#                         if karboniteDepoSize[karboLoc[2]]<1:
+#                                karboniteDepoSize.remove(karboLoc[2])
+#                                karboniteDepoLoc.remove(karboLoc[2])
+#                 else:
+#                     karboLoc=workerGatherHeur(karboniteDepo,location,9,workerHarvest)
+#                     if karboLoc[0]!=0:
+#                         d=location.map_location().direction_to(karboLoc[1])
+
+#                 forwardish(d,unit.id)
+
+# #---------------------------------------------------------------------------------------------#
             #RANGER
             if unit.unit_type == bc.UnitType.Ranger:
                 nearby = gc.sense_nearby_units(location.map_location(), unit.vision_range)
                 nearby = sorted(nearby, key=lambda x: x.health)
                 for other in nearby:
-                    if other.team != my_team and gc.is_attack_ready(unit.id) and gc.can_attack(unit.id, other.id):
-                        print('attacked a thing!')
-                        gc.attack(unit.id, other.id)
-                        continue
+                    if other.team != my_team:
+                        if not other in enemy:
+                            enemy.append(other)
+
+                        if gc.is_attack_ready(unit.id) and gc.can_attack(unit.id, other.id):
+                            print('attacked a thing!')
+                            gc.attack(unit.id, other.id)
+                            if other.health == 0:
+                                enemy.remove(other)
+                            continue
                     #basic ranger micro
-                    if other.team != my_team and not (gc.is_attack_ready(unit.id) or gc.can_attack(unit.id, other.id)):
-                        print('backed up!')
-                        backwardish(location.map_location().direction_to(other.location.map_location()), unit.id)
-                        continue
+                        if not (gc.is_attack_ready(unit.id) or gc.can_attack(unit.id, other.id)):
+                            print('backed up!')
+                            backwardish(location.map_location().direction_to(other.location.map_location()), unit.id)
+                            continue
 
-            #GENERIC MOVEMENT
-            if unit.unit_type != bc.UnitType.Worker and unit.unit_type != bc.UnitType.Rocket and unit.unit_type != bc.UnitType.Factory and location.is_on_map():
-                targetLoc = 0
-                for i in initUnits:
-                    if i.team != my_team and i.unit_type == bc.UnitType.Worker:
-                        targetLoc = i.location
-
-                d = location.map_location().direction_to(targetLoc.map_location())
-                forwardish(d, unit.id)
-            # elif gc.is_move_ready(unit.id) and gc.can_move(unit.id, d):
-            #     gc.move_robot(unit.id, d)
+            genMoveRanger(unit, location)
 
     except Exception as e:
         print('Error:', e)
