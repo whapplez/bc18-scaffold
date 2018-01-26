@@ -10,11 +10,73 @@ EARLY_EARLY_GAME = 150
 EARLY_GAME = 400
 
 #TIMOTHY HAN PYBOT 2
+# NEED TO DO: 
+#   pathfinding
+#   go to mars lol
+#   get defense till mars
+#   get workers to harvest
 #-----------------------------------------------------------------------------------------------------------#
 #                                                                                                           #
 #                                           HELPER FUNCTIONS                                                #
 #                                                                                                           #
 #-----------------------------------------------------------------------------------------------------------#
+
+def onEarth(loc):
+    if (loc.x<0) or (loc.y<0) or (loc.x>=gc.starting_map(bc.Planet.Earth).width) or (loc.y>=gc.starting_map(bc.Planet.Earth).height): return False
+    return True
+
+class mmap():
+    def __init__(self,width,height):
+        self.width=width
+        self.height=height
+        self.arr=[[0]*self.height for i in range(self.width)]
+
+    def onMap(self,loc):
+        if (loc.x<0) or (loc.y<0) or (loc.x>=self.width) or (loc.y>=self.height): 
+            return False
+        return True
+
+    def clear(self):
+        self.arr=[[0]*self.height for i in range(self.width)]
+
+    def get(self,mapLocation): #get karbo value
+        if not self.onMap(mapLocation):
+            return -1
+        return self.arr[mapLocation.x][mapLocation.y]
+
+    def set(self,mapLocation,val): #set karbo value
+        self.arr[mapLocation.x][mapLocation.y] = val
+
+    def printout(self):
+        print('printing map:')
+        for y in range(self.height):
+            buildstr=''
+            for x in range(self.width):
+                buildstr+=format(self.arr[x][self.height-1-y],'2d')
+            print(buildstr)
+
+    def addDisk(self,mapLocation,r2,val):
+        locs = gc.all_locations_within(mapLocation,r2)
+        for loc in locs:
+            if self.onMap(loc):
+                self.set(loc,self.get(loc)+val)
+
+    def multiply(self,mmap2):
+        for x in range(self.width):
+            for y in range(self.height):
+                ml = bc.MapLocation(bc.Planet.Earth,x,y);
+                self.set(ml,self.get(ml)*mmap2.get(ml))
+
+    def findBest(self,mapLocation,r2):
+        locs = gc.all_locations_within(mapLocation,r2)
+        bestAmt = 0
+        bestLoc = None
+        for loc in locs:
+            amt = self.get(loc)
+            if amt>bestAmt:
+                bestAmt=amt
+                bestLoc=loc
+        return bestAmt, bestLoc
 
 def forwardish(targetDirection, robotId):
     for i in possibleDirections:
@@ -29,34 +91,6 @@ def backwardish(directionToBack, robotId):
         if gc.is_move_ready(robotId) and gc.can_move(robotId, directionToMove):
             gc.move_robot(robotId, directionToMove)
             return
-
-#numpy array (accessed with array[x, y]) for initial karbonite values, -1 for impassable terrain
-def getInitMap():
-    if gc.planet() == bc.Planet.Earth:
-        width = leMap.width
-        height = leMap.height
-        actualMap = np.zeros((width, height))
-        for i in range(width):
-            for j in range(height):
-                mL = bc.MapLocation(bc.Planet.Earth, i, j)
-                if leMap.is_passable_terrain_at(mL):
-                    actualMap[i, j] = leMap.initial_karbonite_at(mL)
-                else: 
-                    actualMap[i, j] = -1
-        return actualMap
-
-def workerGatherHeur(karboniteDepoLoc, karboniteDepoSize, location, range2, workerHarvest): #takes in distance squared
-    inRange=[]
-    mLocation=location.map_location()
-    for loc in gc.all_locations_within(mLocation,range2):
-        if loc in karboniteDepoLoc:
-            ind=karboniteDepoLoc.index(loc)
-            heur=karboniteDepoSize[ind]//workerHarvest/(mLocation.distance_squared_to(loc)+0.001)
-            heapq.heappush(inRange,(-heur,ind))
-    if inRange:
-        x=heapq.heappop(inRange)
-        return (-x[0],karboniteDepoLoc[x[1]],x[1])
-    return ""
 
 def genMoveRanger(unit, location):
     if unit.unit_type != bc.UnitType.Worker and unit.unit_type != bc.UnitType.Rocket and unit.unit_type != bc.UnitType.Factory and location.is_on_map():
@@ -81,6 +115,43 @@ def genMoveRanger(unit, location):
 def distanceBetweenUnits(unit, other):
     return unit.location.map_location().distance_squared_to(other.location.map_location())
 
+def nextKarboDirection(unit):
+    mostKarbo = 0
+    mostKarboDir = None
+    location = unit.location.map_location()
+    for d in directions:
+        amountOfKarbo = checkKarbo(location.add(d))
+        if mostKarbo < amountOfKarbo:
+            mostKarbo = amountOfKarbo
+            mostKarboDir = d
+    return mostKarbo, mostKarboDir
+
+def checkKarbo(mapLocation):
+    if onEarth(mapLocation):
+        return gc.karbonite_at(mapLocation)
+    return 0
+
+def findKarbo(unit): #THIS SHIT TIMES OUT
+    currentLocs = []
+    currentLocs.append(unit.location.map_location())
+    while len(currentLocs) > 0:
+        nextLocs = []
+        for locs in currentLocs:
+            for d in directions:
+                nextLoc = locs.add(d)
+                if kMap.get(nextLoc)==0:
+                    dMap.set(nextLoc,1)
+                    nextLocs.append(nextLoc)
+                if dMap.get(nextLoc) < 1 and kMap.get(nextLoc)>0:
+                    dMap.clear()
+                    return nextLoc
+        currentLocs = nextLocs
+    return None
+
+
+# def pathFinder(unit, mapLocation):
+    
+
 #-----------------------------------------------------------------------------------------------------------#
 #                                                                                                           #
 #                                               ACTUAL CODE                                                 #
@@ -98,52 +169,48 @@ directions = list(bc.Direction)
 possibleDirections = [0, 1, -1, 2, -2, 3, -3, 4]
 leMap = gc.starting_map(gc.planet())
 initUnits = leMap.initial_units
-leActualMap = getInitMap()
 finishedInit = []
 enemy = []
+planet = gc.planet()
+
+karboLocs = []
+dMap = mmap(leMap.width, leMap.height) #make dummy map
+kMap = mmap(leMap.width, leMap.height) #make a karbo map
+for x in range(leMap.width):
+    for y in range(leMap.height):
+        loc = bc.MapLocation(planet, x, y)
+        initKarbo = leMap.initial_karbonite_at(loc)
+        if initKarbo > 0:
+            karboLocs.append(loc)
+        kMap.set(loc, initKarbo)
 
 print("pystarted")
 
-# It's a good idea to try to keep your bots deterministic, to make debugging easier.
-# determinism isn't required, but it means that the same things will happen in every thing you run,
-# aside from turns taking slightly different amounts of time due to noise.
 random.seed(6137)
 
-# let's start off with some research!
-# we can queue as much as we want.
+gc.queue_research(bc.UnitType.Worker)
 gc.queue_research(bc.UnitType.Ranger)
 gc.queue_research(bc.UnitType.Ranger)
-gc.queue_research(bc.UnitType.Rocket)
+gc.queue_research(bc.UnitType.Ranger)
 
 my_team = gc.team()
-while True:
-    # We only support Python 3, which means brackets around print()
-    #print('pyround:', gc.round())
 
-    # frequent try/catches are a good idea
+while True:
     try:
         # walk through our units:
+        #Global info where i count things------------------------------
+        workerCount = 0
+        factoryCount = 0
+        for unit in gc.my_units():
+            if unit.unit_type == bc.UnitType.Worker:
+                workerCount += 1
+            if unit.unit_type == bc.UnitType.Factory:
+                factoryCount += 1
 
-        #Global info------------------------------
-
-        productionCount = 0
         blueprintLoc = None
         blueprintWaiting = False
+        #------------------------------------------
 
-        # #----------------------------------------------------------------
-
-        # karboniteDepoLoc = []
-        # karboniteDepoSize = []
-        # for r in range(leMap.height):
-        #     for c in range(leMap.width):
-        #         loc=bc.MapLocation(gc.planet(),c,r)
-        #         karb = leMap.initial_karbonite_at(loc)
-        #         if karb>0:
-        #             # print("karb: "+str(karb))
-        #             karboniteDepoLoc.append(loc)
-        #             karboniteDepoSize.append(karb)
-
-        # #----------------------------------------------------------------
         for unit in gc.my_units():
             location = unit.location
 
@@ -160,63 +227,78 @@ while True:
                             print('unloaded a %s!' %(unit.unit_type))
                             gc.unload(unit.id, d)
                             continue
-9
+
                 if not unit.structure_is_built():
                     blueprintLoc = unit.location.map_location()
                     blueprintWaiting = True
-
-                if gc.can_produce_robot(unit.id, bc.UnitType.Ranger):
-                    # if random.randint(0, 10) < 4:
-                    #     gc.produce_robot(unit.id, bc.UnitType.Knight)
-                    # else:
-                    gc.produce_robot(unit.id, bc.UnitType.Ranger)
-                    print('produced a ranger!')
-                    productionCount+=1
                     continue
 
-            # first, let's look for nearby blueprints to work o
+                # if gc.can_produce_robot(unit.id, bc.UnitType.Ranger):
+                #     gc.produce_robot(unit.id, bc.UnitType.Ranger)
+                #     print('produced a ranger!')
+                #     productionCount+=1
+                #     continue
+
             #WORKER    
-            elif unit.unit_type == bc.UnitType.Worker:
-                nearby ``= gc.sense_nearby_units(location.map_location(), 2)
-                for other in nearby:
-                    if other.team == my_team and gc.can_build(unit.id, other.id):
+            if unit.unit_type == bc.UnitType.Worker:
+                if workerCount < 10: #replicates workers
+                    for d in directions:
+                        if gc.can_replicate(unit.id, d):
+                            gc.replicate(unit.id, d)
+                            workerCount += 1
+                            print("I replicated!")
+                            continue
+
+                nearby = gc.sense_nearby_units(location.map_location(), 2)
+                for other in nearby: #builds adjacent factories
+                    if gc.can_build(unit.id, other.id):
                         gc.build(unit.id, other.id)
-                        print('built a factory!')
+                        print("I built Shit!")
                         continue
 
-                if blueprintWaiting:
+                if blueprintWaiting: #goes to nearest factories
                     mLoc = location.map_location()
                     distToBlue = mLoc.distance_squared_to(blueprintLoc)
-                    if distToBlue > 2 and distToBlue < 50:
+                    if distToBlue > 2:
                         forwardish(mLoc.direction_to(blueprintLoc), unit.id)
+                        print("I went to the unfinished blueprint!", gc.round())
                         continue
 
-                for i in directions:
+                for i in directions: #blueprints factories
                     if gc.karbonite() >= bc.UnitType.Factory.blueprint_cost() and gc.can_blueprint(unit.id, bc.UnitType.Factory, i):
+                        if factoryCount < 200:
                             gc.blueprint(unit.id, bc.UnitType.Factory, i)
+                            print("Blueprinted!")
                             continue
-# #---------------------CHENG HARVEST CODE-------------------------------------------------------#
 
-#                 workerHarvest=unit.worker_harvest_amount()
-#                 karboLoc=workerGatherHeur(karboniteDepoLoc, karboniteDepoSize,location,65,workerHarvest)
-#                 if not karboLoc:
-#                     continue
-#                 if karboLoc[0]!=0:
-#                     d=location.map_location().direction_to(karboLoc[1])
-#                     if karboLoc[0]>999:
-#                         gc.harvest(unit.id, d)
-#                         karboniteDepoSize[karboLoc[2]]-=workerHarvest
-#                         if karboniteDepoSize[karboLoc[2]]<1:
-#                                karboniteDepoSize.remove(karboLoc[2])
-#                                karboniteDepoLoc.remove(karboLoc[2])
-#                 else:
-#                     karboLoc=workerGatherHeur(karboniteDepo,location,9,workerHarvest)
-#                     if karboLoc[0]!=0:
-#                         d=location.map_location().direction_to(karboLoc[1])
+                bestAmount, bestDirection = nextKarboDirection(unit)
+                #Harvests the closest and best deposit of karbonite if nearby
+                if bestAmount > 0:
+                    if gc.can_harvest(unit.id, bestDirection):
+                        gc.harvest(unit.id, bestDirection)
+                        arbLoc = unit.location.map_location().add(bestDirection)
+                        kMap.set(arbLoc, gc.karbonite_at(arbLoc))
+                        continue
 
-#                 forwardish(d,unit.id)
+                #goes looking for karbonite
+                karboLocs = sorted(karboLocs, key=lambda x: x.distance_squared_to(unit.location.map_location()))
+                if gc.round() < 10:
+                    print(len(karboLocs), gc.round())
+                if len(karboLocs) > 0:
+                    while len(karboLocs) > 0:
+                        if gc.can_sense_location(karboLocs[0]):
+                            if gc.karbonite_at(karboLocs[0]) == 0:
+                                print(unit.location.map_location())
+                                print(gc.karbonite_at(karboLocs[0]))
+                                print(karboLocs[0])
+                                xd = karboLocs.remove(karboLocs[0])
+                                print(xd)
+                                continue
 
-# #---------------------------------------------------------------------------------------------#
+                        forwardish(unit.location.map_location().direction_to(karboLocs[0]), unit.id)
+                        break
+                    continue
+
             #RANGER
             if unit.unit_type == bc.UnitType.Ranger:
                 nearby = gc.sense_nearby_units(location.map_location(), unit.vision_range)
@@ -237,7 +319,6 @@ while True:
                             print('backed up!')
                             backwardish(location.map_location().direction_to(other.location.map_location()), unit.id)
                             continue
-
             genMoveRanger(unit, location)
 
     except Exception as e:
